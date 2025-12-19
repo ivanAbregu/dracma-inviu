@@ -17,7 +17,7 @@ load_env_file()
 
 # Configuration from environment (with safe defaults where possible)
 DEFAULT_SPREADSHEET_ID = "1GpVhtgI6sa7TqE2vueZy_xtNNMDQdE7UXejhDkDrBp4"
-DEFAULT_SERVICE_ACCOUNT_FILE = "opt-token-2cd498ef9830.json"
+DEFAULT_SERVICE_ACCOUNT_FILE = "secrets.json"
 
 SPREADSHEET_ID = os.getenv("GOOGLE_SPREADSHEET_ID", DEFAULT_SPREADSHEET_ID)
 SHEET_NAME = os.getenv("GOOGLE_SHEET_NAME") or None
