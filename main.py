@@ -10,9 +10,9 @@ from botocore.exceptions import ClientError
 from playwright.sync_api import sync_playwright, Page, BrowserContext
 
 from opt_token import get_opt_token
-from utils import load_env_file
+from dotenv import load_dotenv
 
-load_env_file()
+load_dotenv()
 
 
 def _get_env_var(name: str, default: str | None = None, required: bool = False) -> str | None:
@@ -46,7 +46,7 @@ def _get_int_env(name: str, default: int) -> int:
 LOGIN_URL = _get_env_var("INVIU_LOGIN_URL", default="https://asesor.inviu.com.ar/login")
 EMAIL = _get_env_var("EMAIL", required=True)
 PASSWORD = _get_env_var("PASSWORD", required=True)
-WAIT_TIME_FOR_TOKEN = _get_int_env("OTP_WAIT_SECONDS", 8 * 60)
+WAIT_TIME_FOR_TOKEN = _get_int_env("OTP_WAIT_SECONDS", 2 * 60)
 PLAYWRIGHT_HEADLESS = _get_bool_env("PLAYWRIGHT_HEADLESS", default=False)
 LOCAL_STORAGE_TOKEN_KEY = _get_env_var("TOKENS_KEY", default="TOKENS_KEY")
 API_BASE_URL = _get_env_var("INVIU_API_BASE_URL", default="https://inviuxy.inviu.com.ar")
@@ -63,10 +63,10 @@ S3_PREFIX = _get_env_var("S3_PREFIX", default="raw")
 
 def wait_for_token(wait_time: int = WAIT_TIME_FOR_TOKEN) -> str:
     """
-    Wait for the email token to arrive and retrieve it from Google Sheets
+    Wait for the email token to arrive and retrieve it from Microsoft Graph Mail
     
     Args:
-        wait_time: Time to wait in seconds (default: 7 minutes)
+        wait_time: Time to wait in seconds (default: 2 minutes)
         
     Returns:
         OTP token string
@@ -147,8 +147,6 @@ def refresh_token(id_token: str, refresh_token: str) -> str | None:
         
         if new_id_token:
             print("✅ Token refrescado exitosamente")
-            # Save refresh response
-            _save_api_response(endpoint, response_data, "POST")
             return new_id_token
         else:
             print("⚠️ Respuesta de refresh no contiene idToken")
@@ -202,7 +200,7 @@ def _get_s3_client():
     return boto3.client('s3', region_name=S3_REGION)
 
 
-def _save_api_response(endpoint: str, response_data: dict, method: str = "GET") -> str:
+def _save_api_response(endpoint: str, response_data: dict, method: str = "GET", name: str | None = None) -> str:
     """
     Save API response to S3 bucket.
     
@@ -210,14 +208,20 @@ def _save_api_response(endpoint: str, response_data: dict, method: str = "GET") 
         endpoint: API endpoint path
         response_data: Response data to save
         method: HTTP method used
+        name: Friendly name for the endpoint (used in filename)
         
     Returns:
         S3 key (path) of the saved file
     """
-    # Create filename from endpoint (sanitize for filesystem)
-    endpoint_safe = endpoint.replace("/", "_").replace("\\", "_").strip("_").replace("?", "_")
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"{method}_{endpoint_safe}_{timestamp}.json"
+    # Create filename from name (or endpoint if name not provided) + date
+    if name:
+        filename_base = name
+    else:
+        # Fallback to sanitized endpoint if no name provided
+        filename_base = endpoint.replace("/", "_").replace("\\", "_").strip("_").replace("?", "_")
+    
+    date = datetime.now().strftime("%Y%m%d")
+    filename = f"{filename_base}_{date}.json"
     
     # Create S3 key with prefix
     s3_key = f"{S3_PREFIX}/{filename}"
@@ -284,7 +288,7 @@ def perform_api_calls(token: str, endpoints: list[dict]) -> dict[str, dict | Non
         
         if response:
             print(f"✅ API call successful: {name}")
-            filepath = _save_api_response(endpoint, response, method)
+            filepath = _save_api_response(endpoint, response, method, name=name)
             print(f"💾 Response saved to: {filepath}")
             results[name] = response
         else:
@@ -479,39 +483,35 @@ def get_api_endpoints() -> list[dict]:
     # Default endpoint
     endpoints = [
         {
-            "endpoint": "/advisor/clients/accounts/CVAL",
+            "endpoint": "/advisor/clients/accounts/v2/CVAL",
             "method": "GET",
-            "name": "client_accounts_cval"
+            "name": "cuentas"
         },
         {
             "endpoint": "/advisor/clients/all",
             "method": "GET",
-            "name": "client_all"
-        },
-        {
-            "endpoint": "/advisor/cash-movements",
-            "method": "GET",
-            "name": "cash_movements"
-        },
-        {
-            "endpoint": "/advisor/orders/cval",
-            "method": "GET",
-            "name": "operaciones"
+            "name": "cartera-aranceles"
         },
         {
             "endpoint": "/advisor/clients/movements?custodian=CVAL",
             "method": "GET",
-            "name": "movimientos"
+            "name": "depositos_y_retiros-movimientos"
         },
         {
-            "endpoint": "/advisor/holdings/CVAL?term=24HS",
+            "endpoint": "/advisor/operations/cval",
+            "method": "GET",
+            "name": "operaciones"
+        },
+
+        {
+            "endpoint": "/advisor/holdings/v2/CVAL?term=24HS",
             "method": "GET",
             "name": "tendencias"
         },
         {
-            "endpoint": "/advisor/clients/balances",
+            "endpoint": "/advisor/clients/balances/v2",
             "method": "GET",
-            "name": "balances"
+            "name": "saldos"
         },
 
     ]
