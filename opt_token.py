@@ -208,8 +208,9 @@ def get_opt_token() -> Optional[str]:
 
 
 if __name__ == "__main__":
+    _logger = setup_logger("dracma.opt_token", "INFO")
     token = get_opt_token()
     if token:
-        print(f"Token encontrado: {token}")
+        _logger.info("Token encontrado", extra={"token_length": len(token)})
     else:
-        print("No se encontró token")
+        _logger.warning("No se encontró token")

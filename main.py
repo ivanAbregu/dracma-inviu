@@ -11,8 +11,11 @@ from playwright.sync_api import sync_playwright, Page, BrowserContext
 
 from opt_token import get_opt_token
 from dotenv import load_dotenv
+from utils import get_logger
 
 load_dotenv()
+
+logger = get_logger("dracma.main")
 
 
 def _get_env_var(name: str, default: str | None = None, required: bool = False) -> str | None:
@@ -138,7 +141,7 @@ def refresh_token(id_token: str, refresh_token: str) -> str | None:
     }
     
     try:
-        print(f"🔄 Refrescando token...")
+        logger.info("🔄 Refrescando token...")
         response = requests.post(url, json=payload, timeout=30)
         response.raise_for_status()
         
@@ -146,16 +149,16 @@ def refresh_token(id_token: str, refresh_token: str) -> str | None:
         new_id_token = response_data.get("idToken")
         
         if new_id_token:
-            print("✅ Token refrescado exitosamente")
+            logger.info("✅ Token refrescado exitosamente")
             return new_id_token
         else:
-            print("⚠️ Respuesta de refresh no contiene idToken")
+            logger.warning("⚠️ Respuesta de refresh no contiene idToken")
             return None
             
     except requests.exceptions.RequestException as e:
-        print(f"❌ Error al refrescar token: {e}")
+        logger.error(f"❌ Error al refrescar token: {e}")
         if hasattr(e, 'response') and e.response is not None:
-            print(f"   Response: {e.response.text[:200]}")
+            logger.error(f"Response: {e.response.text[:200]}")
         return None
 
 
@@ -184,9 +187,9 @@ def _make_api_call(token: str, endpoint: str, method: str = "GET", **kwargs) -> 
         response.raise_for_status()
         return response.json()
     except requests.exceptions.RequestException as e:
-        print(f"❌ API call failed ({method} {endpoint}): {e}")
+        logger.error(f"❌ API call failed ({method} {endpoint}): {e}")
         if hasattr(e, 'response') and e.response is not None:
-            print(f"   Response: {e.response.text[:200]}")
+            logger.error(f"Response: {e.response.text[:200]}")
         return None
 
 
@@ -252,7 +255,7 @@ def _save_api_response(endpoint: str, response_data: dict, method: str = "GET", 
         return s3_path
         
     except ClientError as e:
-        print(f"❌ Error uploading to S3: {e}")
+        logger.error(f"❌ Error uploading to S3: {e}")
         raise
 
 
@@ -278,7 +281,7 @@ def perform_api_calls(token: str, endpoints: list[dict]) -> dict[str, dict | Non
         method = config.get("method", "GET")
         name = config.get("name", endpoint)
         
-        print(f"📡 Calling API: {method} {endpoint}")
+        logger.info(f"📡 Calling API: {method} {endpoint}")
         
         # Extract request kwargs (everything except endpoint, method, name)
         request_kwargs = {k: v for k, v in config.items() 
@@ -287,12 +290,12 @@ def perform_api_calls(token: str, endpoints: list[dict]) -> dict[str, dict | Non
         response = _make_api_call(token, endpoint, method, **request_kwargs)
         
         if response:
-            print(f"✅ API call successful: {name}")
+            logger.info(f"✅ API call successful: {name}")
             filepath = _save_api_response(endpoint, response, method, name=name)
-            print(f"💾 Response saved to: {filepath}")
+            logger.info(f"💾 Response saved to: {filepath}")
             results[name] = response
         else:
-            print(f"❌ API call failed: {name}")
+            logger.error(f"❌ API call failed: {name}")
             results[name] = None
     
     return results
@@ -333,7 +336,7 @@ def _submit_login(page: Page) -> int:
         timeout=15000
     )
 
-    print("🔐 Enviando login...")
+    logger.info("🔐 Enviando login...")
 
     # 🔑 Esperar la response REAL del backend
     with page.expect_response(
@@ -343,7 +346,7 @@ def _submit_login(page: Page) -> int:
         page.click(submit_btn)
 
     response = response_info.value
-    print("📡 Backend status:", response.status)
+    logger.info(f"📡 Backend status: {response.status}")
     return response.status
 
 
@@ -358,7 +361,7 @@ def _handle_otp_challenge(page: Page) -> int:
     
     # Esperar estar en la pantalla de challenge
     page.wait_for_url("**/challenge-code/**", timeout=30000)
-    print("🧩 Challenge detectado")
+    logger.info("🧩 Challenge detectado")
 
     # Esperar input del código
     otp_input = 'input[formcontrolname="newPassword"]'
@@ -381,7 +384,7 @@ def _handle_otp_challenge(page: Page) -> int:
         timeout=15000
     )
 
-    print("🚀 Enviando challenge...")
+    logger.info("🚀 Enviando challenge...")
 
     # Enviar y esperar respuesta backend del challenge
     with page.expect_response(
@@ -391,7 +394,7 @@ def _handle_otp_challenge(page: Page) -> int:
         page.click(submit_btn)
 
     response = response_info.value
-    print("📡 Challenge response status:", response.status)
+    logger.info(f"📡 Challenge response status: {response.status}")
     
     # Esperar salir del challenge
     page.wait_for_url(
@@ -399,7 +402,7 @@ def _handle_otp_challenge(page: Page) -> int:
         timeout=30000
     )
 
-    print("🎉 Challenge completado, URL final:", page.url)
+    logger.info(f"🎉 Challenge completado, URL final: {page.url}")
     return response.status
 
 
@@ -426,7 +429,7 @@ def perform_login() -> dict[str, str] | None:
 
         page = context.new_page()
 
-        print("🌐 Abriendo login...")
+        logger.info("🌐 Abriendo login...")
         page.goto(
             LOGIN_URL,
             wait_until="domcontentloaded",
@@ -438,7 +441,7 @@ def perform_login() -> dict[str, str] | None:
         login_status = _submit_login(page)
 
         if login_status != 200:
-            print("❌ Login falló en el primer paso")
+            logger.error("❌ Login falló en el primer paso")
             browser.close()
             return None
 
@@ -446,24 +449,24 @@ def perform_login() -> dict[str, str] | None:
         challenge_status = _handle_otp_challenge(page)
 
         if challenge_status == 200 and "/login" not in page.url.lower():
-            print("✅ Login OK")
+            logger.info("✅ Login OK")
             
             # Guardar sesión final (ya autenticado)
             context.storage_state(path="session_state.json")
-            print("💾 Sesión guardada en session_state.json")
+            logger.info("💾 Sesión guardada en session_state.json")
             
             # Extraer tokens de localStorage
             tokens = _extract_tokens_from_local_storage(page, LOCAL_STORAGE_TOKEN_KEY)
             if tokens:
-                print(f"🔑 Tokens extraídos de localStorage[{LOCAL_STORAGE_TOKEN_KEY}]")
+                logger.info(f"🔑 Tokens extraídos de localStorage[{LOCAL_STORAGE_TOKEN_KEY}]")
                 browser.close()
                 return tokens
             else:
-                print(f"⚠️ No se encontraron tokens en localStorage para la key {LOCAL_STORAGE_TOKEN_KEY}")
+                logger.warning(f"⚠️ No se encontraron tokens en localStorage para la key {LOCAL_STORAGE_TOKEN_KEY}")
                 browser.close()
                 return None
         else:
-            print("❌ Login falló en el challenge")
+            logger.error("❌ Login falló en el challenge")
             browser.close()
             return None
 
@@ -525,21 +528,21 @@ def main() -> None:
     tokens = perform_login()
     
     if not tokens:
-        print("❌ No se pudo obtener los tokens. Abortando llamadas API.")
+        logger.error("❌ No se pudo obtener los tokens. Abortando llamadas API.")
         return
     
     id_token = tokens["idToken"]
     refresh_token_value = tokens["refreshToken"]
     
     # Refresh token before making API calls
-    print("\n" + "="*60)
-    print("🔄 Refrescando token")
-    print("="*60)
+    logger.info("=" * 60)
+    logger.info("🔄 Refrescando token")
+    logger.info("=" * 60)
     
     refreshed_token = refresh_token(id_token, refresh_token_value)
     
     if not refreshed_token:
-        print("⚠️ No se pudo refrescar el token. Usando token original.")
+        logger.warning("⚠️ No se pudo refrescar el token. Usando token original.")
         active_token = id_token
     else:
         active_token = refreshed_token
@@ -548,19 +551,19 @@ def main() -> None:
     endpoints = get_api_endpoints()
     
     # Perform API calls
-    print("\n" + "="*60)
-    print("🚀 Iniciando llamadas API")
-    print("="*60)
+    logger.info("=" * 60)
+    logger.info("🚀 Iniciando llamadas API")
+    logger.info("=" * 60)
     
     results = perform_api_calls(active_token, endpoints)
     
     # Summary
-    print("\n" + "="*60)
-    print("📊 Resumen de llamadas API")
-    print("="*60)
+    logger.info("=" * 60)
+    logger.info("📊 Resumen de llamadas API")
+    logger.info("=" * 60)
     for name, response in results.items():
         status = "✅" if response else "❌"
-        print(f"{status} {name}: {'Exitoso' if response else 'Falló'}")
+        logger.info(f"{status} {name}: {'Exitoso' if response else 'Falló'}")
 
 
 if __name__ == "__main__":
